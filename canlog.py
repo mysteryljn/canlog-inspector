@@ -14,6 +14,17 @@ CANDUMP=re.compile(
     r"[^#\s]+(?:\s+|#)(?P<id>[0-9A-Fa-f]+)"
     r"(?:#(?P<data>[0-9A-Fa-f]*))?\s*$"
 )
+# ``candump`` without ``-L`` prints the payload as a DLC followed by
+# space-separated bytes, for example ``(1.0) can0 123 [2] AA BB``.  This is
+# the default format on many SocketCAN installations and must be handled in
+# addition to the compact ``123#AABB`` form above.
+CANDUMP_VERBOSE=re.compile(
+    r"^\s*\((?P<ts>[0-9]+(?:\.[0-9]+)?)\)\s+"
+    r"[^#\s]+\s+(?P<id>[0-9A-Fa-f]+)\s+"
+    r"\[(?P<length>[0-9]+)\]"
+    r"(?:\s+(?P<data>(?:[0-9A-Fa-f]{2})(?:\s+[0-9A-Fa-f]{2})*))?\s*$"
+)
+MAX_CAN_ID = 0x1FFFFFFF
 
 def parse_lines(lines):
     frames=[]
@@ -21,12 +32,23 @@ def parse_lines(lines):
         line=raw.strip()
         if not line: continue
         match=CANDUMP.match(line)
-        if match:
+        verbose_match=CANDUMP_VERBOSE.match(line)
+        if verbose_match:
+            timestamp=float(verbose_match.group("ts")); frame_id=int(verbose_match.group("id"),16)
+            declared_length=int(verbose_match.group("length")); data="".join((verbose_match.group("data") or "").split())
+            if len(data)//2 != declared_length:
+                raise ValueError(f"line {line_no}: declared DLC does not match payload")
+        elif match:
             timestamp=float(match.group("ts")); frame_id=int(match.group("id"),16); data=match.group("data") or ""
         else:
             parts=[part.strip() for part in line.split(",")]
             if len(parts)!=3: raise ValueError(f"line {line_no}: expected candump or timestamp,id,data")
             timestamp=float(parts[0]); frame_id=int(parts[1],0); data=parts[2].replace(" ","")
+        # CAN arbitration IDs are at most 29 bits (extended frame format).
+        # Accepting larger or negative values silently turns malformed logs
+        # into plausible-looking reports and can corrupt ID-based triage.
+        if not 0 <= frame_id <= MAX_CAN_ID:
+            raise ValueError(f"line {line_no}: invalid CAN arbitration ID")
         if len(data)%2 or any(c not in "0123456789abcdefABCDEF" for c in data) or len(data)>128: raise ValueError(f"line {line_no}: invalid data bytes")
         frames.append({"timestamp":timestamp,"id":frame_id,"data":data.upper()})
     return frames

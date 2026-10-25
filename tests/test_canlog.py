@@ -16,4 +16,17 @@ class CanLogTests(unittest.TestCase):
         frames = parse_lines(["(12.345678) can0 18DAF110#10203040"])
         self.assertEqual(frames, [{"timestamp": 12.345678, "id": 0x18DAF110, "data": "10203040"}])
 
+    def test_parse_verbose_candump_format(self):
+        frames = parse_lines(["(12.345678) can0 18DAF110 [4] 10 20 30 40"])
+        self.assertEqual(frames, [{"timestamp": 12.345678, "id": 0x18DAF110, "data": "10203040"}])
+
+    def test_verbose_candump_rejects_dlc_mismatch(self):
+        with self.assertRaisesRegex(ValueError, "declared DLC"):
+            parse_lines(["(0.0) can0 123 [2] AA"])
+
+    def test_rejects_ids_outside_can_arbitration_range(self):
+        for line in ("(0.0) can0 100000000#AA", "0.0,0x100000000,AA", "0.0,-1,AA"):
+            with self.assertRaisesRegex(ValueError, "invalid CAN arbitration ID"):
+                parse_lines([line])
+
 if __name__=="__main__": unittest.main()
