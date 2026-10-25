@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 import argparse
+import bisect
 import json
 import re
 from collections import Counter
 from pathlib import Path
 
-CANDUMP=re.compile(r"^\s*\((?P<ts>[0-9.]+)\)\s+[^#\s]+#(?P<id>[0-9A-Fa-f]+)(?:#(?P<data>[0-9A-Fa-f]*))?\s*$")
+# candump normally separates the interface and arbitration ID with a space
+# (``can0 123#AABB``). Older logs produced by this project use ``can0#123#AABB``.
+# Accept both forms so a normal SocketCAN capture is not rejected as CSV.
+CANDUMP=re.compile(
+    r"^\s*\((?P<ts>[0-9]+(?:\.[0-9]+)?)\)\s+"
+    r"[^#\s]+(?:\s+|#)(?P<id>[0-9A-Fa-f]+)"
+    r"(?:#(?P<data>[0-9A-Fa-f]*))?\s*$"
+)
 
 def parse_lines(lines):
     frames=[]
@@ -26,9 +34,17 @@ def parse_lines(lines):
 def inspect(frames,known_ids=(),burst_threshold=100,window_seconds=1.0):
     known=set(known_ids); counts=Counter(frame["id"] for frame in frames)
     unknown=sorted({frame["id"] for frame in frames if known and frame["id"] not in known}); bursts=[]
-    for i,frame in enumerate(frames):
-        end=frame["timestamp"]+window_seconds; count=sum(1 for candidate in frames[i:] if candidate["timestamp"]<=end)
-        if count>burst_threshold: bursts.append({"start":frame["timestamp"],"count":count}); break
+    # Logs can be merged from multiple interfaces and arrive out of order.  Use
+    # the timestamps, rather than the input order, when evaluating a time
+    # window.  The old suffix count also included frames *before* the current
+    # frame's timestamp, producing false burst reports for unsorted logs.
+    timestamps=sorted(frame["timestamp"] for frame in frames)
+    for i,start in enumerate(timestamps):
+        end=start+window_seconds
+        right=bisect.bisect_right(timestamps,end)
+        count=right-i
+        if count>burst_threshold:
+            bursts.append({"start":start,"count":count}); break
     return {"frames":len(frames),"ids":{str(k):v for k,v in sorted(counts.items())},"unknown_ids":unknown,"bursts":bursts,"empty_payloads":sum(1 for frame in frames if not frame["data"])}
 
 def main(argv=None):
