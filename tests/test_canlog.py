@@ -29,4 +29,18 @@ class CanLogTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid CAN arbitration ID"):
                 parse_lines([line])
 
+    def test_rejects_non_finite_csv_timestamps(self):
+        # Python's float() accepts these spellings, but they cannot be sorted
+        # reliably and would make the JSON report non-standard.
+        for value in ("nan", "inf", "-inf", "1e309"):
+            with self.assertRaisesRegex(ValueError, "timestamp must be finite"):
+                parse_lines([f"{value},0x123,AA"])
+
+    def test_rejects_negative_burst_threshold(self):
+        # A negative threshold would classify every frame as a burst and hide
+        # the fact that the threshold configuration is invalid.
+        frames = parse_lines(["0.0,0x123,AA"])
+        with self.assertRaisesRegex(ValueError, "burst_threshold must be non-negative"):
+            inspect(frames, burst_threshold=-1)
+
 if __name__=="__main__": unittest.main()

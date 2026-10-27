@@ -2,6 +2,7 @@
 import argparse
 import bisect
 import json
+import math
 import re
 from collections import Counter
 from pathlib import Path
@@ -44,6 +45,12 @@ def parse_lines(lines):
             parts=[part.strip() for part in line.split(",")]
             if len(parts)!=3: raise ValueError(f"line {line_no}: expected candump or timestamp,id,data")
             timestamp=float(parts[0]); frame_id=int(parts[1],0); data=parts[2].replace(" ","")
+        # ``float`` accepts NaN and infinities in CSV input.  Those values
+        # break timestamp ordering and cause ``json.dumps`` to emit
+        # non-standard JSON (NaN/Infinity), so reject them at the parser
+        # boundary before they can corrupt burst analysis.
+        if not math.isfinite(timestamp):
+            raise ValueError(f"line {line_no}: timestamp must be finite")
         # CAN arbitration IDs are at most 29 bits (extended frame format).
         # Accepting larger or negative values silently turns malformed logs
         # into plausible-looking reports and can corrupt ID-based triage.
@@ -54,6 +61,11 @@ def parse_lines(lines):
     return frames
 
 def inspect(frames,known_ids=(),burst_threshold=100,window_seconds=1.0):
+    # A negative threshold makes every non-empty window a "burst", producing
+    # false incident reports when a CLI typo or untrusted configuration slips
+    # through.  Thresholds count frames and therefore must be non-negative.
+    if burst_threshold < 0:
+        raise ValueError("burst_threshold must be non-negative")
     known=set(known_ids); counts=Counter(frame["id"] for frame in frames)
     unknown=sorted({frame["id"] for frame in frames if known and frame["id"] not in known}); bursts=[]
     # Logs can be merged from multiple interfaces and arrive out of order.  Use
