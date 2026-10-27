@@ -13,7 +13,7 @@ from pathlib import Path
 CANDUMP=re.compile(
     r"^\s*\((?P<ts>[0-9]+(?:\.[0-9]+)?)\)\s+"
     r"[^#\s]+(?:\s+|#)(?P<id>[0-9A-Fa-f]+)"
-    r"(?:#(?P<data>[0-9A-Fa-f]*))?\s*$"
+    r"#(?P<data>[0-9A-Fa-f]*)\s*$"
 )
 # ``candump`` without ``-L`` prints the payload as a DLC followed by
 # space-separated bytes, for example ``(1.0) can0 123 [2] AA BB``.  This is
@@ -39,6 +39,8 @@ def parse_lines(lines):
             declared_length=int(verbose_match.group("length")); data="".join((verbose_match.group("data") or "").split())
             if len(data)//2 != declared_length:
                 raise ValueError(f"line {line_no}: declared DLC does not match payload")
+            if declared_length > 64:
+                raise ValueError(f"line {line_no}: declared DLC exceeds 64-byte CAN payload")
         elif match:
             timestamp=float(match.group("ts")); frame_id=int(match.group("id"),16); data=match.group("data") or ""
         else:

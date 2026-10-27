@@ -20,9 +20,21 @@ class CanLogTests(unittest.TestCase):
         frames = parse_lines(["(12.345678) can0 18DAF110 [4] 10 20 30 40"])
         self.assertEqual(frames, [{"timestamp": 12.345678, "id": 0x18DAF110, "data": "10203040"}])
 
+    def test_rejects_candump_frame_missing_payload_separator(self):
+        # A truncated candump line without the second '#' used to be accepted
+        # as an empty payload, hiding capture corruption in the report.
+        for line in ("(0.0) can0 123", "(0.0) can0#123"):
+            with self.assertRaisesRegex(ValueError, "expected candump"):
+                parse_lines([line])
+
     def test_verbose_candump_rejects_dlc_mismatch(self):
         with self.assertRaisesRegex(ValueError, "declared DLC"):
             parse_lines(["(0.0) can0 123 [2] AA"])
+
+    def test_verbose_candump_rejects_payloads_over_can_fd_limit(self):
+        payload = " ".join(["AA"] * 65)
+        with self.assertRaisesRegex(ValueError, "declared DLC exceeds 64-byte"):
+            parse_lines([f"(0.0) can0 123 [65] {payload}"])
 
     def test_rejects_ids_outside_can_arbitration_range(self):
         for line in ("(0.0) can0 100000000#AA", "0.0,0x100000000,AA", "0.0,-1,AA"):
