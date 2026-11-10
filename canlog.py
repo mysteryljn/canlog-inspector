@@ -66,8 +66,18 @@ def inspect(frames,known_ids=(),burst_threshold=100,window_seconds=1.0):
     # A negative threshold makes every non-empty window a "burst", producing
     # false incident reports when a CLI typo or untrusted configuration slips
     # through.  Thresholds count frames and therefore must be non-negative.
+    if isinstance(burst_threshold, bool) or not isinstance(burst_threshold, int):
+        raise ValueError("burst_threshold must be a non-negative integer")
     if burst_threshold < 0:
         raise ValueError("burst_threshold must be non-negative")
+    # A negative or non-finite window silently suppresses real bursts (or can
+    # make bisect comparisons fail), so reject malformed analysis settings at
+    # the API boundary instead of returning a misleading clean report.
+    if (isinstance(window_seconds, bool)
+            or not isinstance(window_seconds, (int, float))
+            or not math.isfinite(window_seconds)
+            or window_seconds < 0):
+        raise ValueError("window_seconds must be a finite non-negative number")
     known=set(known_ids); counts=Counter(frame["id"] for frame in frames)
     unknown=sorted({frame["id"] for frame in frames if known and frame["id"] not in known}); bursts=[]
     # Logs can be merged from multiple interfaces and arrive out of order.  Use

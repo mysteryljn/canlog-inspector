@@ -55,4 +55,21 @@ class CanLogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "burst_threshold must be non-negative"):
             inspect(frames, burst_threshold=-1)
 
+    def test_rejects_invalid_burst_windows(self):
+        frames = parse_lines(["0.0,0x123,AA"])
+        for window in (-1, float("nan"), float("inf"), True):
+            with self.subTest(window=window):
+                with self.assertRaisesRegex(ValueError, "window_seconds must be a finite non-negative number"):
+                    inspect(frames, window_seconds=window)
+
+    def test_rejects_non_integer_burst_thresholds(self):
+        # The threshold counts frames.  Coercing booleans/fractions or
+        # allowing strings through would make the API report misleading
+        # bursts or fail later with an unhandled comparison error.
+        frames = parse_lines(["0.0,0x123,AA"])
+        for threshold in (True, False, 1.5, "1", float("nan")):
+            with self.subTest(threshold=threshold):
+                with self.assertRaisesRegex(ValueError, "burst_threshold must be a non-negative integer"):
+                    inspect(frames, burst_threshold=threshold)
+
 if __name__=="__main__": unittest.main()
